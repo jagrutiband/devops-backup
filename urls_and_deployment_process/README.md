@@ -13,3 +13,5 @@
 | ------------- | ------------- | -------------| ------------- | ------------- |------------- |
 |devdashboard.videomagic.app  | Github| dev | Cloudflare | Cloudflare Pages |Vishnu |
 |dashboard.videomagic.app  | Github | prod | Cloudflare | Cloudflare Pages |Vishnu |
+
+[Deployment process Dashboard ](Dashboard.md)
