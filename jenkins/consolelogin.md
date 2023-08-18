@@ -1,4 +1,4 @@
-## This document help you to understand login on Jenkins console
+## This document helps you to understand how to login on Jenkins console
 
 
 ##### Clone the repository using Git: https://git-codecommit.us-east-1.amazonaws.com/v1/repos/crunch-jenkins-automation
