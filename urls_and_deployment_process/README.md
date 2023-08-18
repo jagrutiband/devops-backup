@@ -5,7 +5,7 @@
 |dev.videomagic.app  | Github  | dev | Cloudflare | Cloudflare Pages | Vishnu |
 |www.videomagic.app  | Github  | prod |Cloudflare | Cloudflare Pages | Vishnu |
 
-[Deployment process for Static website (Signup) ](Static-website.md)
+[Deployment process for Static website (Signup) ](Deployment-Process-Static-website.md)
 
 ### Dashboard 
 
@@ -14,4 +14,4 @@
 |devdashboard.videomagic.app  | Github| dev | Cloudflare | Cloudflare Pages |Vishnu |
 |dashboard.videomagic.app  | Github | prod | Cloudflare | Cloudflare Pages |Vishnu |
 
-[Deployment process Dashboard ](Dashboard.md)
+[Deployment process Dashboard ](Deployment-Process-Dashboard.md)
