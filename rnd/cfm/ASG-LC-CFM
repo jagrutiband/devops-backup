@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  MyLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-0c7217cdde317cfec
+      InstanceType: t2.medium
+      KeyName: strapi
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo apt update
+          sudo apt install -y nodejs
+          sudo apt install -y npm
+          sudo apt update
+          sudo apt install -y python3.8
+          sudo apt update
+          sudo apt install -y ffmpeg
+          sudo apt update
+          sudo apt install -y nginx
+          sudo systemctl start nginx
+          sudo npm install -g pm2
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchConfigurationName: !Ref MyLaunchConfiguration
+      MinSize: 1
+      MaxSize: 3  # Adjust as needed
+      DesiredCapacity: 2  # Adjust as needed
+      VPCZoneIdentifier:
+        - subnet-0940e2ad3974a7243  # Replace with your public subnet IDs
+        - subnet-04b9fbb2d58aab906  # Replace with another public subnet ID
+      Tags:
+        - Key: Name
+          Value: prod-api-server
+          PropagateAtLaunch: true
+
