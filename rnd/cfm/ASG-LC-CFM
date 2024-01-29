@@ -1,11 +1,34 @@
 AWSTemplateFormatVersion: "2010-09-09"
+
 Resources:
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow SSH, HTTP, and HTTPS"
+      VpcId: !ImportValue
+        Fn::Sub: "VPCstack-VPCId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # Allow SSH from anywhere
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0  # Allow HTTP from anywhere
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
+
   MyLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
       KeyName: strapi
+      SecurityGroups:
+        - !Ref MySecurityGroup  # Reference the security group created above
       UserData:
         Fn::Base64: |
           #!/bin/bash
@@ -20,18 +43,18 @@ Resources:
           sudo apt install -y nginx
           sudo systemctl start nginx
           sudo npm install -g pm2
+
   MyAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       LaunchConfigurationName: !Ref MyLaunchConfiguration
       MinSize: 1
-      MaxSize: 3  # Adjust as needed
-      DesiredCapacity: 2  # Adjust as needed
+      MaxSize: 3
+      DesiredCapacity: 2
       VPCZoneIdentifier:
-        - subnet-0940e2ad3974a7243  # Replace with your public subnet IDs
-        - subnet-04b9fbb2d58aab906  # Replace with another public subnet ID
+        - !ImportValue
+          Fn::Sub: "VPCstack-PublicSubnetIds"
       Tags:
         - Key: Name
           Value: prod-api-server
           PropagateAtLaunch: true
-
