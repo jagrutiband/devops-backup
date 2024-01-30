@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Windows RDP Server"
+
+Resources:
+  # EC2 Instance for Windows RDP Server
+  RenderEngineLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: "ami-00d990e7e5ece7974"  # Specify a Windows Server AMI ID
+      InstanceType: "t2.medium"  # Choose an appropriate instance type
+      KeyName: "RDP-CFM-Key"  # Specify your key pair
+      UserData:
+        Fn::Base64: 
+          !Sub |
+            <powershell>
+                Start-Transcript -OutputDirectory \log
+              Get-Date
+              echo "create Project folder creation Begain..."
+              mkdir c:\Projects
+              echo "create Project folder creation Done..."
+
+              echo "render_workpath folder creation Begain..."
+              mkdir c:\render_workpath
+              echo "render_workpath folder creation Done..."
+
+              echo "render_workpath folder creation Begain..."
+              mkdir c:\installerfiles
+              echo "render_workpath folder creation Done..."
+
+              echo "Scripts folder creation Begain..."
+              mkdir c:\Scripts
+              echo "Scripts Done..."
+
+              echo "etc folder creation Begain..."
+              mkdir c:\etc
+              echo "etc folder creation Done..."
+
+              cd c:\installerfiles
+
+              echo "Google Chrome Installation Begain..."
+              $Path = $env:TEMP; $Installer = "chrome_installer.exe"; Invoke-WebRequest "https://dl.google.com/chrome/install/latest/chrome_installer.exe" -OutFile $Path$Installer; Start-Process -FilePath $Path$Installer -Args "/silent /install" -Verb RunAs -Wait; Remove-Item $Path$Installer
+              #$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+              #aws s3 cp s3://vm-render-deployment/Render_Softwares/ChromeSetup.exe C:\Installerfiles\
+              #start-process ChromeSetup.exe -Args "/silent /install" -Verb RunAs -Wait
+              echo "Google Chrome Installation Done..."
+
+              echo "NodeJS Installation Begain..."
+              #aws s3 cp s3://vm-render-deployment/Render_Softwares/node-v18.17.1-x64.msi C:\Installerfiles\
+              Start-Process msiexec.exe -Wait -ArgumentList '/I node-v18.12.0-x64.msi /quiet'
+              echo "NodeJS Installation Done..."
+
+              echo ".pm2 & NPM System Environment Path Set Begain...."
+              [Environment]::SetEnvironmentVariable("PM2_HOME", "C:\etc", "Machine")
+              [Environment]::SetEnvironmentVariable("Path", $env:Path + ";c:\Program Files\nodejs" + ";c:\Users\Administrator\AppData\Roaming\npm", "Machine")
+              echo ".pm2 & NPM System Environment Path Set Done...."
+
+              echo "PM2 Installation Begain..."
+              $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+              npm install pm2 -g 2> $null
+              echo "PM2 Installation Done..."
+
+              echo "Copy .pm2 to C:\etc\ Begain.."
+              pm2 start
+              cp -LiteralPath C:\Users\opc\.pm2 -Destination c:\etc -Recurse
+
+              echo "Copy .pm2 Done.."
+
+              echo "GIT Installation Begain..."
+              #aws s3 cp s3://vm-render-deployment/Render_Softwares/Git-2.42.0-64-bit.exe C:\Installerfiles\
+              start-process Git-2.42.0.2-64-bit.exe -Args "/silent /install" -Verb RunAs -Wait
+              echo "GIT Installation Done..."
+
+
+              #$Installer7Zip = $env:TEMP + "\7z1900-x64.msi"; 
+              Invoke-WebRequest "https://www.7-zip.org/a/7z1900-x64.msi" -OutFile C:\installerfiles\7z1900-x64.msi; 
+              msiexec /i 7z1900-x64.msi /qb; 
+              #Remove-Item $Installer7Zip;
+
+              #   Install 7zip module
+
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+              Set-PSRepository -Name 'PSGallery' -SourceLocation "https://www.powershellgallery.com/api/v2" -InstallationPolicy Trusted
+              Install-Module -Name 7Zip4PowerShell -Force
+
+              #   Extract 7zip file
+
+              $sourcefile = "C:\installerfiles\ffmpeg-2023-09-04-git-f8503b4c33-full_build.7z"
+              Expand-7Zip -ArchiveFileName $sourcefile -TargetPath 'c:\ffmpeg'
+
+              [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\ffmpeg\ffmpeg-2023-07-19-git-efa6cec759-full_build\bin", "User")
+
+
+              echo "File Download option set to enable Begain..."
+              Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\3" -Name "1803" -Value 0
+              Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\3" -Name "1804" -Value 1
+              set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\3" -Name "1400" -Value 0
+              echo "File Download option set to enable Done..."
+
+              echo "Set Google Chrome as Default Browser Begain..."
+              set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice" -Name "ProgId" -Value "ChromeHTML"
+              set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice" -Name "ProgId" -Value "ChromeHTML"
+              set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice" -Name "Hash" -Value "/vl+ronxuA4="
+              set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice" -Name "Hash" -Value "k9Da/QqU74c="
+              echo "Set Google Chrome as Default Browser Done..."
+
+              Echo "IE Safe Sites Addition Begain..."
+              New-Item -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\ims-na1.adobelogin.com'
+
+              New-Item -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\google.com'
+
+              New-Item -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\adobe.com'
+
+              New-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\ims-na1.adobelogin.com' -name 'http' -Value 2
+
+              New-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\ims-na1.adobelogin.com' -name 'https' -Value 2
+
+              New-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\google.com' -name 'http' -Value 2
+
+              New-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\google.com' -name 'https' -Value 2
+
+              New-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\adobe.com' -name 'http' -Value 2
+
+              New-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\EscDomains\adobe.com' -name 'https' -Value 2
+
+              Echo "IE Safe Sites Addition done..."
+
+              Echo "Font Downloads Begain..."
+              #aws s3 cp s3://vm-render-deployment/Render_Softwares/fonts.Zip C:\Installerfiles\
+              Expand-Archive -LiteralPath fonts.Zip -DestinationPath "c:\Windows\Fonts" -force
+              Echo "Font Downloads Done..."
+
+              echo "Set Google Chrome as Default Browser verification Begain"
+              start https://www.google.com
+              echo "Set Google Chrome as Default Browser verification  Done.."
+
+              echo "Adobe Creative Cloud Installation Begain..."
+              #aws s3 cp s3://vm-render-deployment/Render_Softwares/VM-CreativeCloud-AfterEffects-latest-2_en_US_WIN_64.zip C:\Installerfiles\
+              Expand-Archive -LiteralPath CCDA-4-Sept_en_US_WIN_64.zip -DestinationPath C:\installerfiles -force
+              cd C:\installerfiles\CCDA-4-Sept\Build
+              Start-Process msiexec.exe -Wait -ArgumentList '/I CCDA-4-Sept.msi /quiet' 
+              echo "Adobe Creative Cloud Installation Done..."
+
+              #echo "Copying Project Code with Dummy SQS URL Begain..."
+              #cd c:\installerfiles
+              #aws s3 cp s3://vm-render-deployment/"v7" C:\Projects\vm-render-worker\  --recursive
+              #echo "Copying Project Code with Dummy SQS URL Done..."
+
+
+              $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+              cd "C:\Projects\"
+              git clone -b render-engine-optimize-v1 --single-branch https://github.com/videomagicllc/videomagic-render-engine
+              cd "C:\Projects\videomagic-render-engine"
+              cd crunch-nexrender-action-unzip
+              npm i
+              #npm install -g crunch-nexrender-action-unzip
+              cd C:\Projects\videomagic-render-engine\crunch-ae-sqs-rendernode
+              npm install --no-package-lock --force
+              echo "CD Packages Installation Done..."
+
+
+              $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+              $DefaultUsername = "Videomagic@123"
+              Set-ItemProperty $RegPath "AutoAdminLogon" -Value "1" -type String
+              Set-ItemProperty $RegPath "DefaultUsername" -Value "$DefaultUsername" -type String
+              Set-ItemProperty $RegPath "DefaultPassword" -Value "$DefaultPassword" -type String
+
+
+              echo "VSCode Installation Begain..."
+              cd c:\installerfiles
+              #aws s3 cp s3://vm-render-deployment/Render_Softwares/VSCodeSetup-x64-1.81.1.exe C:\Installerfiles\
+              start-process VSCodeSetup-x64-1.81.1.exe -Args "/silent /install" -Verb RunAs -Wait
+              #start-process VSCodeSetup-x64-1.58.2.exe -Args "/silent /install" -Verb RunAs -Wait
+
+              echo "VSCode Installation Done..."
+
+              get-date
+              Stop-Transcript 
+            </powershell>
+      SecurityGroups: 
+        - Ref: RDPSecurityGroup  # Reference to the security group
+
+  # Security Group for RDP
+  RDPSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow RDP traffic"
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: "0.0.0.0/0"  # Allow RDP from anywhere
+
+  # AutoScaling Group for RDP
+  RenderEngineASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchConfiguration:
+        LaunchConfigurationName: !Ref RenderEngineLaunchConfiguration
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 1
+      VPCZoneIdentifier:
+        - subnet-8576eaaf # Use the same subnet as your render engine server
+
+
+Outputs:
+  RDPServerInstanceIP:
+    Description: "Public IP Address of the RDP Server"
+    Value: !GetAtt RDPServerInstance.PublicIp
+    RenderEngineASGName:
+    Value: !Ref RenderEngineASG
