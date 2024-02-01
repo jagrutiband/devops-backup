@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Resources:
+  MyAutoScalingGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      LaunchConfigurationName: !Ref MyLaunchConfig
+      MinSize: "1"
+      MaxSize: "2"
+      DesiredCapacity: "2"
+      VPCZoneIdentifier: [subnet-50dab435] 
+      HealthCheckType: "EC2"
+      HealthCheckGracePeriod: "300"
+      Tags:
+        - Key: "Name"
+          Value: "EventServer"
+          PropagateAtLaunch: "true"
+
+  MyLaunchConfig:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      ImageId: "ami-0c7217cdde317cfec" 
+      InstanceType: "t2.micro"
+      KeyName: RDP-CFM-Key
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            sudo apt update
+            sudo apt install -y nodejs
+            sudo apt install -y npm
+            sudo apt update
+            sudo apt install -y python3.8
+            sudo apt update
+            sudo apt install -y ffmpeg
+            sudo apt update
+            sudo apt install -y nginx
+            sudo systemctl start nginx
+            sudo npm install -g pm2
+     
+
+Outputs:
+  AutoScalingGroupID:
+    Description: "Auto Scaling Group ID"
+    Value: !Ref MyAutoScalingGroup
