@@ -1,12 +1,29 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
+Parameters:
+  VMVPCId:
+    Type: String
+    Description: "Enter the VPC ID"
+
+  VMPublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Enter the list of public subnet IDs"
+
+  GitUsername:
+    Type: String
+    Description: "Your Git username"
+ 
+  GitAccessToken:
+    Type: String
+    NoEcho: true
+    Description: "Your Git access token"
+
 Resources:
-  MySecurityGroup:
+  VMSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: "Allow SSH, HTTP, and HTTPS"
-      VpcId: !ImportValue
-        Fn::Sub: "VPCstack-VPCId"
+      VpcId: !Ref VMVPCId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -21,15 +38,15 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
 
-  MyLaunchConfiguration:
+  DataProcessorLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
       KeyName: strapi
       SecurityGroups:
-        - !Ref MySecurityGroup  # Reference the security group created above
-      UserData:
+        - !Ref VMSecurityGroup  # Reference the security group created above
+      UserData:    
         Fn::Base64: |
           #!/bin/bash
           sudo apt update
@@ -43,18 +60,29 @@ Resources:
           sudo apt install -y nginx
           sudo systemctl start nginx
           sudo npm install -g pm2
+          sudo apt update
+          sudo apt install -y git
 
-  MyAutoScalingGroup:
+          sudo mkdir -p /var/www/code/
+          sudo chown -R root:root /var/www/code/
+
+          export HOME=/root  # Set HOME environment variable
+          sudo -u root git clone https://${GitUsername}:${GitAccessToken}@github.com/videomagicllc/data-processor.git /var/www/code/
+          cd /var/www/code/data-processor
+          sudo -u root pm2 start
+          sudo -u root pm2 save
+          sudo -u root pm2 startup
+
+  DataProcessorAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      LaunchConfigurationName: !Ref MyLaunchConfiguration
+      LaunchConfigurationName: !Ref DataProcessorLaunchConfiguration
       MinSize: 1
       MaxSize: 3
       DesiredCapacity: 2
-      VPCZoneIdentifier:
-        - !ImportValue
-          Fn::Sub: "VPCstack-PublicSubnetIds"
+      VPCZoneIdentifier: !Ref VMPublicSubnetIds  # Reference the parameter for subnet IDs
       Tags:
         - Key: Name
-          Value: prod-api-server
+          Value: dev-dataprocessor
           PropagateAtLaunch: true
+
