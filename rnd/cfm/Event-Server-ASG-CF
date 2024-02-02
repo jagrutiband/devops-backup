@@ -1,45 +1,108 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
+Parameters:
+  VPCId:
+    Type: String
+    Description: "Enter the VPC ID"
+
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Enter the list of public subnet IDs"
+
+  GitUsername:
+    Type: String
+    Description: "Your Git username"
+ 
+  GitAccessToken:
+    Type: String
+    NoEcho: true
+    Description: "Your Git access token"
+
+  GitRepoUrl:
+    Type: String
+    Description: "URL of the private Git repository"
+
 Resources:
-  MyAutoScalingGroup:
-    Type: "AWS::AutoScaling::AutoScalingGroup"
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      LaunchConfigurationName: !Ref MyLaunchConfig
-      MinSize: "1"
-      MaxSize: "2"
-      DesiredCapacity: "2"
-      VPCZoneIdentifier: [subnet-50dab435] 
-      HealthCheckType: "EC2"
-      HealthCheckGracePeriod: "300"
-      Tags:
-        - Key: "Name"
-          Value: "EventServer"
-          PropagateAtLaunch: "true"
+      GroupDescription: "Allow SSH, HTTP, and HTTPS"
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # Allow SSH from anywhere
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0  # Allow HTTP from anywhere
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
 
-  MyLaunchConfig:
-    Type: "AWS::AutoScaling::LaunchConfiguration"
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
-      ImageId: "ami-0c7217cdde317cfec" 
-      InstanceType: "t2.micro"
+      ImageId: ami-0c7217cdde317cfec  # Replace with a valid AMI ID
+      InstanceType: t2.medium
       KeyName: RDP-CFM-Key
-      UserData:
-        Fn::Base64:
-          !Sub |
-            #!/bin/bash
-            sudo apt update
-            sudo apt install -y nodejs
-            sudo apt install -y npm
-            sudo apt update
-            sudo apt install -y python3.8
-            sudo apt update
-            sudo apt install -y ffmpeg
-            sudo apt update
-            sudo apt install -y nginx
-            sudo systemctl start nginx
-            sudo npm install -g pm2
-     
+      SecurityGroups:
+        - !Ref SecurityGroup  # Reference the security group created above
+      UserData:    
+        Fn::Base64: |
+          #!/bin/bash
+          exec > /tmp/userdata.log 2>&1
 
-Outputs:
-  AutoScalingGroupID:
-    Description: "Auto Scaling Group ID"
-    Value: !Ref MyAutoScalingGroup
+          echo "Starting UserData script"
+          echo "Current user: $(whoami)"
+          echo "HOME variable: $HOME"
+
+          # Add additional debug statements related to Git setup and repository clone
+          echo "Git username: $GitUsername"
+          echo "Git access token: $GitAccessToken"
+          echo "Git repository URL: $GitRepoUrl"
+
+          sudo apt-get update
+          sudo apt-get install -y nodejs
+          sudo apt-get install -y npm
+          sudo apt-get update
+          sudo apt-get install -y python3.8
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          sudo apt-get update
+          sudo apt-get install -y nginx
+          sudo systemctl start nginx
+          sudo npm install -g pm2
+          sudo apt-get update
+          sudo apt-get install -y git
+
+          # Git Credential configuration
+          git config --global credential.helper '!f() { echo "username=${GitUsername}"; echo "password=${GitAccessToken}"; }; f'
+
+          sudo mkdir -p /var/www/code/
+          sudo chown -R ubuntu:ubuntu /var/www/code/  # Use ubuntu:ubuntu for AWS Ubuntu instances
+
+          # Clone the Git repository
+          cd /var/www/code/
+          sudo -u root git clone https://${GitUsername}:${GitAccessToken}@${https://github.com/videomagicllc/videomagic-event-server.git}
+          cd /var/www/code/videomagic-event-server
+
+          sudo -u root npm install
+          sudo -u root pm2 start npm -- start
+          sudo -u root pm2 save
+          sudo -u root pm2 startup
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 2
+      VPCZoneIdentifier: !Ref PublicSubnetIds  # Reference the parameter for subnet IDs
+      Tags:
+        - Key: Name
+          Value: event-server
+          PropagateAtLaunch: true
