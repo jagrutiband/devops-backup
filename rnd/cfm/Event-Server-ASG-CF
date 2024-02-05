@@ -9,18 +9,9 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
 
-  GitUsername:
+  GitSecretName:
     Type: String
-    Description: "Your Git username"
- 
-  GitAccessToken:
-    Type: String
-    NoEcho: true
-    Description: "Your Git access token"
-
-  GitRepoUrl:
-    Type: String
-    Description: "URL of the private Git repository"
+    Description: "Name of the AWS Secrets Manager secret containing SSH private key"
 
 Resources:
   SecurityGroup:
@@ -50,19 +41,14 @@ Resources:
       KeyName: RDP-CFM-Key
       SecurityGroups:
         - !Ref SecurityGroup  # Reference the security group created above
-      UserData:    
+      UserData:
         Fn::Base64: |
           #!/bin/bash
+
           exec > /tmp/userdata.log 2>&1
 
-          echo "Starting UserData script"
-          echo "Current user: $(whoami)"
-          echo "HOME variable: $HOME"
-
-          # Add additional debug statements related to Git setup and repository clone
-          echo "Git username: $GitUsername"
-          echo "Git access token: $GitAccessToken"
-          echo "Git repository URL: $GitRepoUrl"
+          # Set HOME environment variable
+          export HOME=/root
 
           sudo apt-get update
           sudo apt-get install -y nodejs
@@ -78,16 +64,33 @@ Resources:
           sudo apt-get update
           sudo apt-get install -y git
 
-          # Git Credential configuration
-          git config --global credential.helper '!f() { echo "username=${GitUsername}"; echo "password=${GitAccessToken}"; }; f'
+          # Retrieve the private key from Secrets Manager
+          GIT_PRIVATE_KEY=$(aws secretsmanager get-secret-value --secret-id !Ref GitSecretName --query SecretString --output text)
+
+          sudo mkdir -p /root/.ssh
+          sudo chown -R root:root /root/.ssh
+
+          # Save the private key to a file
+          sudo echo "$GIT_PRIVATE_KEY" > /root/.ssh/id_rsa
+          sudo chmod 600 /root/.ssh/id_rsa
+
+          # Add GitHub to known hosts
+          ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+          # Start the SSH agent and add the private key
+          eval $(ssh-agent -s)
+          ssh-add /root/.ssh/id_rsa
+
+          # Configure Git with the private key and known hosts
+          git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
 
           sudo mkdir -p /var/www/code/
-          sudo chown -R ubuntu:ubuntu /var/www/code/  # Use ubuntu:ubuntu for AWS Ubuntu instances
+          sudo chown -R root:root /var/www/code/
 
-          # Clone the Git repository
-          cd /var/www/code/
-          sudo -u root git clone https://${GitUsername}:${GitAccessToken}@${https://github.com/videomagicllc/videomagic-event-server.git}
-          cd /var/www/code/videomagic-event-server
+          # Clone the private Git repository
+          cd /home/ubuntu
+          git clone git@github.com:videomagicllc/videomagic-event-server.git
+          cd /home/ubuntu/videomagic-event-server
 
           sudo -u root npm install
           sudo -u root pm2 start npm -- start
