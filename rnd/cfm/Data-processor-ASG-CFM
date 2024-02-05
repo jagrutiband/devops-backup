@@ -9,14 +9,9 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
 
-  GitUsername:
+  GitSecretName:
     Type: String
-    Description: "Your Git username"
- 
-  GitAccessToken:
-    Type: String
-    NoEcho: true
-    Description: "Your Git access token"
+    Description: "Name of the AWS Secrets Manager secret containing the Git SSH private key"
 
 Resources:
   VMSecurityGroup:
@@ -46,9 +41,14 @@ Resources:
       KeyName: strapi
       SecurityGroups:
         - !Ref VMSecurityGroup  # Reference the security group created above
-      UserData:    
+      UserData:
         Fn::Base64: |
           #!/bin/bash
+          exec > /tmp/userdata.log 2>&1  # Redirect all output to a log file for debugging
+
+          # Set HOME environment variable
+          export HOME=/root
+
           sudo apt update
           sudo apt install -y nodejs
           sudo apt install -y npm
@@ -63,12 +63,28 @@ Resources:
           sudo apt update
           sudo apt install -y git
 
+          git_private_key=$(aws secretsmanager get-secret-value --secret-id !Ref GitSecretName --query SecretString --output text)
+          
+          sudo apt update && sudo apt upgrade
+          sudo mkdir -p /root/.ssh
+          sudo chown -R root:root /root/.ssh
+          sudo echo "$git_private_key" > /root/.ssh/id_rsa
+          sudo chmod 600 /root/.ssh/id_rsa
+
+          # Add GitHub to the list of known hosts
+          ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+          # Start SSH agent and add the private key
+          eval $(ssh-agent -s)
+          ssh-add /root/.ssh/id_rsa
+           
+          git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
+
           sudo mkdir -p /var/www/code/
           sudo chown -R root:root /var/www/code/
 
-          export HOME=/root  # Set HOME environment variable
-          sudo -u root git clone https://${GitUsername}:${GitAccessToken}@github.com/videomagicllc/data-processor.git /var/www/code/
-          cd /var/www/code/data-processor
+          # Clone the repository
+          git clone git@github.com:videomagicllc/data-processor.git /var/www/code/
           sudo -u root pm2 start
           sudo -u root pm2 save
           sudo -u root pm2 startup
@@ -85,4 +101,3 @@ Resources:
         - Key: Name
           Value: dev-dataprocessor
           PropagateAtLaunch: true
-
