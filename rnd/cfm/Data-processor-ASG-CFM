@@ -9,9 +9,10 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
 
-  GitSecretName:
+  GitSSMParameterName:
     Type: String
-    Description: "Name of the AWS Secrets Manager secret containing the Git SSH private key"
+    Description: "Name of the SSM parameter containing the Git SSH private key"
+    Default: "/path/to/your/parameter"  # Provide the default value for your SSM parameter
 
 Resources:
   VMSecurityGroup:
@@ -38,7 +39,7 @@ Resources:
     Properties:
       ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
-      KeyName: strapi
+      KeyName: CFM-ASG
       SecurityGroups:
         - !Ref VMSecurityGroup  # Reference the security group created above
       UserData:
@@ -63,12 +64,8 @@ Resources:
           sudo apt update
           sudo apt install -y git
 
-          git_private_key=$(aws secretsmanager get-secret-value --secret-id !Ref GitSecretName --query SecretString --output text)
-          
-          sudo apt update && sudo apt upgrade
-          sudo mkdir -p /root/.ssh
-          sudo chown -R root:root /root/.ssh
-          sudo echo "$git_private_key" > /root/.ssh/id_rsa
+          # Fetch and write the SSH private key directly to /root/.ssh/id_rsa
+          aws ssm get-parameter --name !Ref GitSSMParameterName --query Parameter.Value --output text | sudo tee /root/.ssh/id_rsa >/dev/null
           sudo chmod 600 /root/.ssh/id_rsa
 
           # Add GitHub to the list of known hosts
