@@ -9,11 +9,10 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
 
-  GitHubCredentialsParameter:
+  GitSSMParameterName:
     Type: String
-    Default: "Event-CF"
-    Description: "Parameter Store path for GitHub credentials (with decryption)"
-    NoEcho: true
+    Description: "Name of the SSM parameter containing the Git SSH private key"
+    Default: "/path/to/your/parameter"  # Provide the default value for your SSM parameter
 
 Resources:
   SecurityGroup:
@@ -35,97 +34,97 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
 
-  MyIAMRole:
+  EventServerCFMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EventServerCFMRole
+
+  EventServerCFMRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: MyGitAccessRole
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: SSMParameterAccessPolicy
+        - PolicyName: SSMParameterAccess
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: ssm:GetParameters
-                Resource: "arn:aws:ssm:us-east-1:514279248915:parameter/Event-CF"
+                Action: ssm:GetParameter
+                Resource: "arn:aws:ssm:*:*:parameter/Event-CF"
 
-  MyInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: MyInstanceProfile
-      Roles:
-        - !Ref MyIAMRole
-
-  LaunchConfiguration:
+  EventServerLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
-      ImageId: ami-0c7217cdde317cfec  # Replace with a valid AMI ID
+      ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
-      IamInstanceProfile: !Ref MyInstanceProfile
       KeyName: RDP-CFM-Key
       SecurityGroups:
-        - !Ref SecurityGroup  # Reference the security group created above
+        - !Ref SecurityGroup
+      IamInstanceProfile: !Ref EventServerCFMInstanceProfile
       UserData:
         Fn::Base64: |
           #!/bin/bash
-
-          exec > /tmp/userdata.log 2>&1
+          exec > /tmp/userdata.log 2>&1  # Redirect all output to a log file for debugging
 
           # Set HOME environment variable
-          export HOME=/home/ubuntu
+          export HOME=/root
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-          sudo apt-get update
-          sudo apt-get install -y awscli
-
-          sudo apt-get update
-          sudo apt-get install -y nodejs
-          sudo apt-get install -y npm
-          sudo apt-get update
-          sudo apt-get install -y python3.8
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          sudo apt-get update
-          sudo apt-get install -y nginx
+          sudo apt update
+          sudo apt install -y nodejs
+          sudo apt install -y npm
+          sudo apt update
+          sudo apt install -y python3.8
+          sudo apt update
+          sudo apt install -y ffmpeg
+          sudo apt update
+          sudo apt install -y nginx
           sudo systemctl start nginx
           sudo npm install -g pm2
-          sudo apt-get update
-          sudo apt-get install -y git
+          sudo apt update
+          sudo apt install -y git
+          sudo apt update
+          
+          # Install and Configure AWS CLI
+          sudo apt install -y awscli
+          aws configure set default.region us-east-1
 
-          # Retrieve SSH private key from Parameter Store
-          aws ssm get-parameter --name !Ref GitHubCredentialsParameter --with-decryption --query 'Parameter.Value' --output text > $HOME/Event-CF
-          sudo chmod 600 $HOME/Event-CF
 
-          # Configure Git to use SSH key
-          sudo mkdir $HOME/.ssh
-          ssh-keyscan github.com >> $HOME/.ssh/known_hosts
-          sudo cp $HOME/Event-CF $HOME/.ssh/id_rsa
+          # Fetch and write the SSH private key directly to /root/.ssh/id_rsa
+          aws ssm get-parameter --name Event-CF --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
 
-          sudo chmod 600 $HOME/.ssh/id_rsa
-          sudo mkdir -p $HOME/var/www/code/
-          sudo chown -R ubuntu:ubuntu $HOME/var/www/code/
+          sudo chmod 600 /root/.ssh/id_rsa
+
+          # Add GitHub to the list of known hosts
+          ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+          # Start SSH agent and add the private key
+          eval $(ssh-agent -s)
+          ssh-add /root/.ssh/id_rsa
+
+          git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
+
+          sudo mkdir -p /var/www/code/
+          sudo chown -R root:root /var/www/code/
 
           # Clone the private GitHub repository
-          git clone git@github.com:videomagicllc/videomagic-event-server.git $HOME/var/www/code/
-          cd $HOME/var/www/code/videomagic-event-server
+          git clone git@github.com:videomagicllc/videomagic-event-server.git /var/www/code/
+          cd /var/www/code/
+          sudo -u root pm2 start
+          sudo -u root pm2 save
+          sudo -u root pm2 startup
 
-          sudo -u ubuntu npm install
-
-          # Start the application using pm2
-          sudo -u ubuntu pm2 start npm -- start
-          sudo -u ubuntu pm2 save
-          sudo -u ubuntu pm2 startup
-
-  AutoScalingGroup:
+  EventServerAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      LaunchConfigurationName: !Ref LaunchConfiguration
+      LaunchConfigurationName: !Ref EventServerLaunchConfiguration
       MinSize: 1
       MaxSize: 3
       DesiredCapacity: 2
