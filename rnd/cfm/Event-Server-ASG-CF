@@ -9,13 +9,9 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
 
-  GitSecretName:
-    Type: String
-    Description: "Name of the AWS Secrets Manager secret containing SSH private key"
-
   GitHubCredentialsParameter:
     Type: String
-    Default: "/event-server/github-credentials"
+    Default: "Event-CF"
     Description: "Parameter Store path for GitHub credentials (with decryption)"
     NoEcho: true
 
@@ -39,11 +35,39 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
 
+  MyIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MyGitAccessRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SSMParameterAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameters
+                Resource: "arn:aws:ssm:us-east-1:514279248915:parameter/Event-CF"
+
+  MyInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: MyInstanceProfile
+      Roles:
+        - !Ref MyIAMRole
+
   LaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       ImageId: ami-0c7217cdde317cfec  # Replace with a valid AMI ID
       InstanceType: t2.medium
+      IamInstanceProfile: !Ref MyInstanceProfile
       KeyName: RDP-CFM-Key
       SecurityGroups:
         - !Ref SecurityGroup  # Reference the security group created above
@@ -55,6 +79,10 @@ Resources:
 
           # Set HOME environment variable
           export HOME=/home/ubuntu
+          export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+          sudo apt-get update
+          sudo apt-get install -y awscli
 
           sudo apt-get update
           sudo apt-get install -y nodejs
@@ -71,14 +99,15 @@ Resources:
           sudo apt-get install -y git
 
           # Retrieve SSH private key from Parameter Store
-          aws ssm get-parameter --name !Ref GitHubCredentialsParameter --with-decryption --query 'Parameter.Value' --output text > $HOME/event-server/github-credentials
-          chmod 600 $HOME/event-server/github-credentials
+          aws ssm get-parameter --name !Ref GitHubCredentialsParameter --with-decryption --query 'Parameter.Value' --output text > $HOME/Event-CF
+          sudo chmod 600 $HOME/Event-CF
 
           # Configure Git to use SSH key
           sudo mkdir $HOME/.ssh
           ssh-keyscan github.com >> $HOME/.ssh/known_hosts
-          sudo cp $HOME/event-server/github-credentials $HOME/.ssh/id_rsa
-          chmod 600 $HOME/.ssh/id_rsa
+          sudo cp $HOME/Event-CF $HOME/.ssh/id_rsa
+
+          sudo chmod 600 $HOME/.ssh/id_rsa
           sudo mkdir -p $HOME/var/www/code/
           sudo chown -R ubuntu:ubuntu $HOME/var/www/code/
 
@@ -86,8 +115,6 @@ Resources:
           git clone git@github.com:videomagicllc/videomagic-event-server.git $HOME/var/www/code/
           cd $HOME/var/www/code/videomagic-event-server
 
-          # Change directory and install dependencies
-          cd $HOME/var/www/code/videomagic-event-server
           sudo -u ubuntu npm install
 
           # Start the application using pm2
