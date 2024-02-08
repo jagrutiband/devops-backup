@@ -57,7 +57,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: "arn:aws:ssm:*:*:parameter/CFM-ASG"
+                Resource: !Sub "arn:aws:ssm:*:*:parameter/${GitSSMParameterName}"
 
   DataProcessorLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
@@ -98,7 +98,7 @@ Resources:
 
 
           # Fetch and write the SSH private key directly to /root/.ssh/id_rsa
-          aws ssm get-parameter --name CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
+          aws ssm get-parameter --name ${GitSSMParameterName} --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
 
           sudo chmod 600 /root/.ssh/id_rsa
 
@@ -115,11 +115,8 @@ Resources:
           sudo chown -R root:root /var/www/code/
 
           git clone git@github.com:videomagicllc/data-processor.git /var/www/code/
-          cd /var/www/code/
-          sudo -u root pm2 start
-          sudo -u root pm2 save
-          sudo -u root pm2 startup
-
+          
+          
   DataProcessorAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
