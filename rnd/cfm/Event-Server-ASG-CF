@@ -57,7 +57,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: "arn:aws:ssm:*:*:parameter/Event-CF"
+                Resource: "arn:aws:ssm:*:*:parameter/Event-CFM"
 
   EventServerLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
@@ -97,8 +97,8 @@ Resources:
           aws configure set default.region us-east-1
 
 
-          # Fetch and write the SSH private key directly to /root/.ssh/id_rsa
-          aws ssm get-parameter --name Event-CF --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
+          #Fetch and write the SSH private key directly to /root/.ssh/id_rsa
+          aws ssm get-parameter --name Event-CFM --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
 
           sudo chmod 600 /root/.ssh/id_rsa
 
