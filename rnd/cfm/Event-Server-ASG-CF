@@ -57,14 +57,14 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: "arn:aws:ssm:*:*:parameter/Event-CFM"
+                Resource: "arn:aws:ssm:*:*:parameter/Event-CFM-ASG"
 
   EventServerLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
-      KeyName: RDP-CFM-Key
+      KeyName: CFM-ASG
       SecurityGroups:
         - !Ref SecurityGroup
       IamInstanceProfile: !Ref EventServerCFMInstanceProfile
@@ -77,28 +77,38 @@ Resources:
           export HOME=/root
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+          # Install NVM
           sudo apt update
-          sudo apt install -y nodejs
-          sudo apt install -y npm
+          sudo apt install curl -y
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+
+          source /root/.nvm/nvm.sh
+
+          # Install Node.js and npm with NVM
+          nvm install 18.12.1
+          nvm alias default 18.12.1
+          npm install -g npm@8.19.2
+
           sudo apt update
-          sudo apt install -y python3.8
-          sudo apt update
-          sudo apt install -y ffmpeg
-          sudo apt update
-          sudo apt install -y nginx
+          sudo apt install -y python3.8 ffmpeg nginx
           sudo systemctl start nginx
-          sudo npm install -g pm2
-          sudo apt update
-          sudo apt install -y git
-          sudo apt update
-          
+
+          # Install pm2 globally 
+          npm install -g pm2 > /var/log/pm2_install_log 2>&1
+
+          # Check pm2 installation
+          if [ -x "$(command -v pm2)" ]; then
+          echo "pm2 installed successfully."
+          else
+          echo "pm2 installation failed. Check /var/log/pm2_install_log for details."
+          fi
+
           # Install and Configure AWS CLI
           sudo apt install -y awscli
           aws configure set default.region us-east-1
 
-
           #Fetch and write the SSH private key directly to /root/.ssh/id_rsa
-          aws ssm get-parameter --name Event-CFM --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
+          aws ssm get-parameter --name Event-CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
 
           sudo chmod 600 /root/.ssh/id_rsa
 
@@ -116,8 +126,10 @@ Resources:
 
           # Clone the private GitHub repository
           git clone git@github.com:videomagicllc/videomagic-event-server.git /var/www/code/
-          cd /var/www/code/
-          sudo -u root pm2 start
+
+          cd /var/www/code
+          sudo -u root npm install
+          sudo -u root pm2 start npm -- start
           sudo -u root pm2 save
           sudo -u root pm2 startup
 
