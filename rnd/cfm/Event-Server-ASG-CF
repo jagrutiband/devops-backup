@@ -77,33 +77,24 @@ Resources:
           export HOME=/root
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-          # Install NVM
+          # Install nodejs and npm        
           sudo apt update
-          sudo apt install curl -y
-          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
-
-          source /root/.nvm/nvm.sh
-
-          # Install Node.js and npm with NVM
-          nvm install 18.12.1
-          nvm alias default 18.12.1
-          npm install -g npm@8.19.2
-
+          curl -sL https://deb.nodesource.com/setup_18.12.x | sudo -E bash -
+          sudo apt-get install -y nodejs
           sudo apt update
-          sudo apt install -y python3.8 ffmpeg nginx
+          sudo apt install -y npm
+          sudo apt update
+          sudo apt install -y python3.8
+          sudo apt update
+          sudo apt install -y ffmpeg
+          sudo apt update
+          sudo apt install -y nginx
           sudo systemctl start nginx
+          sudo npm install -g pm2
+          sudo apt update
+          sudo apt install -y git
+          sudo apt update
 
-          # Install pm2 globally 
-          npm install -g pm2 > /var/log/pm2_install_log 2>&1
-
-          # Check pm2 installation
-          if [ -x "$(command -v pm2)" ]; then
-          echo "pm2 installed successfully."
-          else
-          echo "pm2 installation failed. Check /var/log/pm2_install_log for details."
-          fi
-
-          # Install and Configure AWS CLI
           sudo apt install -y awscli
           aws configure set default.region us-east-1
 
@@ -119,19 +110,13 @@ Resources:
           eval $(ssh-agent -s)
           ssh-add /root/.ssh/id_rsa
 
-          git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
+          sudo git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
 
           sudo mkdir -p /var/www/code/
           sudo chown -R root:root /var/www/code/
 
           # Clone the private GitHub repository
-          git clone git@github.com:videomagicllc/videomagic-event-server.git /var/www/code/
-
-          cd /var/www/code
-          sudo -u root npm install
-          sudo -u root pm2 start npm -- start
-          sudo -u root pm2 save
-          sudo -u root pm2 startup
+          sudo git clone git@github.com:videomagicllc/videomagic-event-server.git /var/www/code/
 
   EventServerAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
