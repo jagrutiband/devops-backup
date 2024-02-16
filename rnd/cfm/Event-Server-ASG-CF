@@ -79,10 +79,15 @@ Resources:
 
           # Install nodejs and npm        
           sudo apt update
-          curl -sL https://deb.nodesource.com/setup_18.12.x | sudo -E bash -
-          sudo apt-get install -y nodejs
-          sudo apt update
-          sudo apt install -y npm
+          NODE_INSTALL_DIR="/usr/local"
+          NODE_VERSION="v18.12.1"
+          NODE_ARCHIVE="node-${NODE_VERSION}-linux-x64.tar.xz"
+          NODE_URL="https://nodejs.org/dist/${NODE_VERSION}/${NODE_ARCHIVE}"
+          curl -fsSL "$NODE_URL" -o "/tmp/${NODE_ARCHIVE}"
+          sudo mkdir -p "$NODE_INSTALL_DIR"
+          sudo tar -xvf "/tmp/${NODE_ARCHIVE}" -C "$NODE_INSTALL_DIR" --strip-components=1
+          sudo ln -s "${NODE_INSTALL_DIR}/bin/node" /usr/bin/node
+          sudo ln -s "${NODE_INSTALL_DIR}/bin/npm" /usr/bin/npm
           sudo apt update
           sudo apt install -y python3.8
           sudo apt update
