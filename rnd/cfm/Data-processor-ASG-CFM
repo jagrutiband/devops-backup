@@ -12,7 +12,7 @@ Parameters:
   GitSSMParameterName:
     Type: String
     Description: "Name of the SSM parameter containing the Git SSH private key"
-    Default: "/path/to/your/parameter"  # Provide the default value for your SSM parameter
+    Default: "your parameter name"  # Provide the default value for your SSM parameter
 
 Resources:
   VMSecurityGroup:
@@ -33,6 +33,10 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
 
   CFMInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -72,15 +76,19 @@ Resources:
         Fn::Base64: |
           #!/bin/bash
           exec > /tmp/userdata.log 2>&1  # Redirect all output to a log file for debugging
-
-          # Set HOME environment variable
           export HOME=/root
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-
           sudo apt update
-          sudo apt install -y nodejs
-          sudo apt install -y npm
+          NODE_INSTALL_DIR="/usr/local"
+          NODE_VERSION="v18.12.1"
+          NODE_ARCHIVE="node-${NODE_VERSION}-linux-x64.tar.xz"
+          NODE_URL="https://nodejs.org/dist/${NODE_VERSION}/${NODE_ARCHIVE}"
+          curl -fsSL "$NODE_URL" -o "/tmp/${NODE_ARCHIVE}"
+          sudo mkdir -p "$NODE_INSTALL_DIR"
+          sudo tar -xvf "/tmp/${NODE_ARCHIVE}" -C "$NODE_INSTALL_DIR" --strip-components=1
+          sudo ln -s "${NODE_INSTALL_DIR}/bin/node" /usr/bin/node
+          sudo ln -s "${NODE_INSTALL_DIR}/bin/npm" /usr/bin/npm
           sudo apt update
           sudo apt install -y python3.8
           sudo apt update
@@ -109,12 +117,12 @@ Resources:
           eval $(ssh-agent -s)
           ssh-add /root/.ssh/id_rsa
 
-          git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
+          sudo git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
 
           sudo mkdir -p /var/www/code/
           sudo chown -R root:root /var/www/code/
 
-          git clone git@github.com:videomagicllc/data-processor.git /var/www/code/
+          sudo git clone git@github.com:videomagicllc/data-processor.git /var/www/code/
           
           
   DataProcessorAutoScalingGroup:
