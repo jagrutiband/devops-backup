@@ -25,6 +25,10 @@ Parameters:
     Type: String
     Description: "Name for the MySQL database"
 
+  JumpBoxHost:
+    Type: String
+    Description: "Hostname or IP address of the Jump Box Server Host"
+
   GitSSMParameterName:
     Type: String
     Description: "Name of the SSM parameter containing the Git SSH private key"
@@ -129,7 +133,7 @@ Resources:
           sudo apt update
           sudo apt install -y git
           sudo apt update
-          sudo apt install -y mysql-client
+          sudo apt install -y mysql-client ssh
 
           sudo apt install -y awscli
           aws configure set default.region us-east-1
@@ -142,21 +146,19 @@ Resources:
           MYSQL_USER=${MySQLUsername}
           MYSQL_PASSWORD=${MySQLPassword}
           MYSQL_DATABASE=${MySQLDatabase}
+          JUMP_BOX=${JumpBoxHost}
 
           sudo chmod 600 /root/.ssh/CFM-ASG.pem
-
-          # Add GitHub to the list of known hosts
-          ssh-keyscan github.com >> /root/.ssh/known_hosts
 
           # Start SSH agent and add the private key
           eval $(ssh-agent -s)
           ssh-add /root/.ssh/CFM-ASG.pem
-
-          sudo apt update
-          sudo apt install net-tools
           
           # Create SSH tunnel to MySQL
-          sudo ssh -fNL 3306:${MYSQL_HOST}:3306 -i /root/.ssh/CFM-ASG.pem -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ServerAliveCountMax=10 ${MYSQL_USER}@${MYSQL_HOST} -T
+          sudo ssh -fNT -L 3306:${MYSQL_HOST}:3306 -i /root/.ssh/CFM-ASG.pem -l ubuntu -o StrictHostKeyChecking=no 150.136.34.168
+
+          # Use MySQL client to connect through the SSH tunnel to the OCI MySQL database
+          sudo mysql -h 127.0.0.1 -P 3306 -u admin -pHSTbSJ#2022sh124TDh videomagic
 
           #Fetch and write the SSH private key directly to /root/.ssh/id_rsa
           sudo aws ssm get-parameter --name Git-CFM --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
