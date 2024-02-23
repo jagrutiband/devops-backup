@@ -9,27 +9,27 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
   
-  MySQLUserSSMParameterName:
+  MySQLUserSSMParameter:
     Type: String
     Description: "Name of the SSM parameter containing the Username for the MySQL database"
     Default: "your parameter name"
 
-  MySQLPasswordSSMParameterName:
+  MySQLPasswordSSMParameter:
     Type: String
     Description: "Name of the SSM parameter containing the Password for the MySQL database"
     Default: "your parameter name"
 
-  MySQLDatabaseSSMParameterName:
+  MySQLDatabaseSSMParameter:
     Type: String
     Description: "Name of the SSM parameter containing the MySQL database"
     Default: "your parameter name"
 
-  MySQLHostSSMParameterName:
+  MySQLHostSSMParameter:
     Type: String
     Description: "Name of the SSM parameter containing the Hostname or IP address of the OCI MySQL database"
     Default: "your parameter name"
 
-  JumpBoxHostSSMParameterName:
+  JumpBoxHostSSMParameter:
     Type: String
     Description: "Name of the SSM parameter containing the Hostname or IP address of the Jump Box Server Host"
     Default: "your parameter name"
@@ -89,11 +89,11 @@ Resources:
                 Resource:
                 - !Sub "arn:aws:ssm:*:*:parameter/${GitSSMParameterName}"
                 - !Sub "arn:aws:ssm:*:*:parameter/${SSHTunnelSSMParameterName}"
-                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLUserSSMParameterName}"
-                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLPasswordSSMParameterName}"
-                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLDatabaseSSMParameterName}"
-                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLHostSSMParameterName}"
-                - !Sub "arn:aws:ssm:*:*:parameter/${JumpBoxHostSSMParameterName}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLUserSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLPasswordSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLDatabaseSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLHostSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${JumpBoxHostSSMParameter}"
 
   EventServerInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -143,13 +143,11 @@ Resources:
           sudo apt update
           sudo apt install -y git
           sudo apt update
-          sudo apt install -y mysql-client ssh
+          sudo apt install -y mysql-client
+          sudo apt update
 
           sudo apt install -y awscli
           aws configure set default.region us-east-1
-
-          #Fetch and write the SSH private key directly to /root/.ssh/CFM-ASG.pem
-          aws ssm get-parameter --name CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/CFM-ASG.pem
 
           # Set MySQL credentials
           export MYSQL_USER=$(aws ssm get-parameter --name mysql-user --query "Parameter.Value" --output text)
@@ -158,11 +156,8 @@ Resources:
           export MYSQL_HOST=$(aws ssm get-parameter --name mysql-host --query "Parameter.Value" --output text)
           export JUMP_BOX=$(aws ssm get-parameter --name jumpbox-host --query "Parameter.Value" --output text)
 
-          echo "MySQLUserSSMParameterName: ${MySQLUserSSMParameterName}"
-          echo "MySQLPasswordSSMParameterName: ${MySQLPasswordSSMParameterName}"
-          echo "MySQLDatabaseSSMParameterName: ${MySQLDatabaseSSMParameterName}"
-          echo "MySQLHostSSMParameterName: ${MySQLHostSSMParameterName}"
-          echo "JumpBoxHostSSMParameterName: ${JumpBoxHostSSMParameterName}"
+          #Fetch and write the SSH private key directly to /root/.ssh/CFM-ASG.pem
+          aws ssm get-parameter --name CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/CFM-ASG.pem
 
           sudo chmod 600 /root/.ssh/CFM-ASG.pem
 
@@ -171,9 +166,7 @@ Resources:
           ssh-add /root/.ssh/CFM-ASG.pem
           
           # Create SSH tunnel to MySQL
-          sudo ssh -i /root/.ssh/CFM-ASG.pem -L 3308:${MySQLHost}:3306 -N -f -l ubuntu -o StrictHostKeyChecking=no ${JUMP_BOX}
-
-          # Use MySQL credentials in your script
+          sudo ssh -i /root/.ssh/CFM-ASG.pem -L 3308:${MYSQL_HOST}:3306 -N -f -l ubuntu -o StrictHostKeyChecking=no ${JUMP_BOX}
           sudo mysql -h 127.0.0.1 -P 3308 -u ${MYSQL_USER} -p"${MYSQL_PASSWORD}" ${MYSQL_DATABASE}
 
           #Fetch and write the SSH private key directly to /root/.ssh/id_rsa
