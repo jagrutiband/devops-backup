@@ -67,7 +67,7 @@ Resources:
           FromPort: 3306
           ToPort: 3306
           CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
-          
+            
   EventServerIAMRole:
     Type: AWS::IAM::Role
     Properties:
@@ -145,6 +145,12 @@ Resources:
           sudo apt update
           sudo apt install -y mysql-client
           sudo apt update
+          sudo apt install -y ruby
+          sudo apt install -y wget
+          sudo wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
+          sudo chmod +x ./install
+          sudo ./install auto
+          sudo apt update
 
           sudo apt install -y awscli
           aws configure set default.region us-east-1
@@ -156,7 +162,6 @@ Resources:
           export MYSQL_HOST=$(aws ssm get-parameter --name mysql-host --query "Parameter.Value" --output text)
           export JUMP_BOX=$(aws ssm get-parameter --name jumpbox-host --query "Parameter.Value" --output text)
          
-
           # Fetch and write the SSH private key directly to /root/.ssh/CFM-ASG.pem
           aws ssm get-parameter --name CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/CFM-ASG.pem
 
@@ -190,6 +195,41 @@ Resources:
           # Clone the private GitHub repository
           sudo git clone git@github.com:videomagicllc/videomagic-event-server.git /var/www/code/
 
+  EventServerLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: EventServerLoadBalancer
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref SecurityGroup
+      Scheme: internet-facing
+      Type: application
+      Tags:
+        - Key: Name
+          Value: EventServerLoadBalancer
+
+  EventServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: EventServerTargetGroup
+      VpcId: !Ref VPCId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      Tags:
+        - Key: Name
+          Value: EventServerTargetGroup
+
+  EventServerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EventServerTargetGroup
+      LoadBalancerArn: !Ref EventServerLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
   EventServerAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -198,6 +238,8 @@ Resources:
       MaxSize: 3
       DesiredCapacity: 2
       VPCZoneIdentifier: !Ref PublicSubnetIds  # Reference the parameter for subnet IDs
+      TargetGroupARNs:
+        - !Ref EventServerTargetGroup 
       Tags:
         - Key: Name
           Value: event-server
