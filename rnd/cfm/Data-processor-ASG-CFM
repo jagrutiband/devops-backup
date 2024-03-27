@@ -12,7 +12,7 @@ Parameters:
   GitSSMParameterName:
     Type: String
     Description: "Name of the SSM parameter containing the Git SSH private key"
-    Default: "your parameter name"  # Provide the default value for your SSM parameter
+    Default: "your parameter name"  
 
   SSHTunnelSSMParameterName:
     Type: String
