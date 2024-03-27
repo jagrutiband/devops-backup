@@ -196,7 +196,7 @@ Resources:
       HealthCheckIntervalSeconds: 5
       HealthCheckPath: /
       HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 2
+      HealthCheckTimeoutSeconds: 4
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 2
       Tags:
