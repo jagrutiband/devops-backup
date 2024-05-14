@@ -223,7 +223,7 @@ Resources:
       HealthCheckGracePeriod: 0  
       Tags:
         - Key: Name
-          Value: Prod-eventserver
+          Value: prod-eventserver
           PropagateAtLaunch: true
 
 
