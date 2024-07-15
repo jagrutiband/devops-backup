@@ -1,55 +1,58 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
 Parameters:
-  VPCId:
+  VMVPCId:
     Type: String
     Description: "Enter the VPC ID"
 
-  PublicSubnetIds:
+  VMPublicSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
   
+  AcmCertificateArn:
+    Type: String
+    Description: "ARN of the ACM certificate for videomagic.app"
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+
+  SSHTunnelSSMParameterName:
+    Type: String
+    Description: "Name of the SSM parameter containing the jump-box private key"
+    Default: "your parameter name"  
+
   MySQLUserSSMParameter:
     Type: String
-    Description: "Name of the SSM parameter containing the Username for the MySQL database"
+    Description: "SSM parameter name for MySQL username"
     Default: "your parameter name"
 
   MySQLPasswordSSMParameter:
     Type: String
-    Description: "Name of the SSM parameter containing the Password for the MySQL database"
+    Description: "SSM parameter name for MySQL password"
     Default: "your parameter name"
 
   MySQLDatabaseSSMParameter:
     Type: String
-    Description: "Name of the SSM parameter containing the MySQL database"
+    Description: "SSM parameter name for MySQL database"
     Default: "your parameter name"
 
   MySQLHostSSMParameter:
     Type: String
-    Description: "Name of the SSM parameter containing the Hostname or IP address of the OCI MySQL database"
+    Description: "SSM parameter name for MySQL host"
     Default: "your parameter name"
 
   JumpBoxHostSSMParameter:
     Type: String
-    Description: "Name of the SSM parameter containing the Hostname or IP address of the Jump Box Server Host"
+    Description: "SSM parameter name for jump box host"
     Default: "your parameter name"
 
-  GitSSMParameterName:
-    Type: String
-    Description: "Name of the SSM parameter containing the Git SSH private key"
-    Default: "your parameter name"  # Provide the default value for your SSM parameter
-
-  SSHTunnelSSMParameterName:
-    Type: String
-    Description: "Name of the SSM parameter containing the SSH Tunnel private key"
-    Default: "your parameter name"  # Provide the default value for your SSM parameter
-
 Resources:
-  SecurityGroup:
+  VMSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "Allow SSH, HTTP, HTTPS and MySQL"
-      VpcId: !Ref VPCId
+      GroupDescription: "Allow SSH, HTTP, and HTTPS"
+      VpcId: !Ref VMVPCId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -66,9 +69,15 @@ Resources:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
-            
-  EventServerIAMRole:
+          CidrIp: 0.0.0.0/0
+
+  CFMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref CFMRole
+
+  CFMRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -79,50 +88,43 @@ Resources:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: SSMParameterAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
+      - PolicyName: ApiCFMRole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
                 - ssm:GetParameter
-                Resource:
-                - !Sub "arn:aws:ssm:*:*:parameter/${GitSSMParameterName}"
+                - s3:GetObject
+              Resource:
                 - !Sub "arn:aws:ssm:*:*:parameter/${SSHTunnelSSMParameterName}"
                 - !Sub "arn:aws:ssm:*:*:parameter/${MySQLUserSSMParameter}"
                 - !Sub "arn:aws:ssm:*:*:parameter/${MySQLPasswordSSMParameter}"
                 - !Sub "arn:aws:ssm:*:*:parameter/${MySQLDatabaseSSMParameter}"
                 - !Sub "arn:aws:ssm:*:*:parameter/${MySQLHostSSMParameter}"
                 - !Sub "arn:aws:ssm:*:*:parameter/${JumpBoxHostSSMParameter}"
+                - !Sub "arn:aws:s3:::*"
 
-  EventServerInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Roles:
-        - !Ref EventServerIAMRole
-
-  EventServerLaunchConfiguration:
+ 
+  DevApiLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
-      ImageId: ami-0c7217cdde317cfec  # Specify the appropriate AMI for your event server
+      ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
-      KeyName: CFM-ASG
+      KeyName: !Ref KeyName
       SecurityGroups:
-        - !Ref SecurityGroup
-      IamInstanceProfile: !Ref EventServerInstanceProfile
+        - !Ref VMSecurityGroup
+      IamInstanceProfile: !Ref CFMInstanceProfile
       UserData:
         Fn::Base64: |
           #!/bin/bash
           exec > /tmp/userdata.log 2>&1  # Redirect all output to a log file for debugging
-
-          # Set HOME environment variable
           export HOME=/root
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-          # Install nodejs and npm        
           sudo apt update
           NODE_INSTALL_DIR="/usr/local"
-          NODE_VERSION="v18.12.1"
+          NODE_VERSION="v20.11.1"
           NODE_ARCHIVE="node-${NODE_VERSION}-linux-x64.tar.xz"
           NODE_URL="https://nodejs.org/dist/${NODE_VERSION}/${NODE_ARCHIVE}"
           curl -fsSL "$NODE_URL" -o "/tmp/${NODE_ARCHIVE}"
@@ -131,116 +133,140 @@ Resources:
           sudo ln -s "${NODE_INSTALL_DIR}/bin/node" /usr/bin/node
           sudo ln -s "${NODE_INSTALL_DIR}/bin/npm" /usr/bin/npm
           sudo apt update
-          sudo apt install -y npm
-          sudo apt update
           sudo apt install -y python3.8
           sudo apt update
           sudo apt install -y ffmpeg
           sudo apt update
-          sudo apt install -y nginx
-          sudo systemctl start nginx
           sudo npm install -g pm2
           sudo apt update
           sudo apt install -y git
           sudo apt update
           sudo apt install -y mysql-client
           sudo apt update
-          sudo apt install -y ruby
-          sudo apt install -y wget
+          sudo apt-get update
+          sudo apt-get install -y ruby
           sudo wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
           sudo chmod +x ./install
           sudo ./install auto
-          sudo apt update
-
-          sudo apt install -y awscli
+          sudo apt install -y awscli 
           aws configure set default.region us-east-1
-
-          # Set MySQL credentials
+          sudo apt update
+          sudo wget https://exiftool.org/Image-ExifTool-12.82.tar.gz
+          sudo gzip -dc Image-ExifTool-12.82.tar.gz | tar -xf - 
+          cd Image-ExifTool-12.82
+          sudo perl Makefile.PL
+          sudo apt install make
+          sudo make install    
+          sudo apt install -y nginx
+          sudo systemctl start nginx
+          
+          echo "server {
+                    listen 80;
+                    listen [::]:80;
+                    server_name dev-api.videomagic.app;
+                  
+                location / {
+                     proxy_pass http://localhost:3030;
+                     proxy_http_version 1.1;
+                     proxy_set_header Upgrade \$http_upgrade;
+                     proxy_set_header Connection 'upgrade';
+                     proxy_set_header Host \$host;
+                     proxy_cache_bypass \$http_upgrade;
+                    }
+                }" | sudo tee /etc/nginx/sites-enabled/featrherjs-vhost.conf >/dev/null 
+          sudo rm /etc/nginx/sites-enabled/default
+          
+          
           export MYSQL_USER=$(aws ssm get-parameter --name mysql-user --query "Parameter.Value" --output text)
           export MYSQL_PASSWORD=$(aws ssm get-parameter --name mysql-password --with-decryption --query "Parameter.Value" --output text)
           export MYSQL_DATABASE=$(aws ssm get-parameter --name mysql-db --query "Parameter.Value" --output text)
           export MYSQL_HOST=$(aws ssm get-parameter --name mysql-host --query "Parameter.Value" --output text)
           export JUMP_BOX=$(aws ssm get-parameter --name jumpbox-host --query "Parameter.Value" --output text)
-         
-          # Fetch and write the SSH private key directly to /root/.ssh/CFM-ASG.pem
-          aws ssm get-parameter --name CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/CFM-ASG.pem
 
-          sudo chmod 600 /root/.ssh/CFM-ASG.pem
-
-          # Start SSH agent and add the private key
+          aws ssm get-parameter --name jump-box-ssh --with-decryption --query "Parameter.Value" --output text > /root/.ssh/jump-box-ssh.pem
+          sudo chmod 600 /root/.ssh/jump-box-ssh.pem
           eval $(ssh-agent -s)
-          ssh-add /root/.ssh/CFM-ASG.pem
+          ssh-add /root/.ssh/jump-box-ssh.pem
 
-          # Create SSH tunnel to MySQL
-          sudo ssh -i /root/.ssh/CFM-ASG.pem -L 3308:${MYSQL_HOST}:3306 -N -f -l ubuntu -o StrictHostKeyChecking=no ${JUMP_BOX}
-          sudo mysql -h 127.0.0.1 -P 3308 -u ${MYSQL_USER} -p"${MYSQL_PASSWORD}" ${MYSQL_DATABASE}
-
-          #Fetch and write the SSH private key directly to /root/.ssh/id_rsa
-          sudo aws ssm get-parameter --name Git-CFM --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
-
-          sudo chmod 600 /root/.ssh/id_rsa
-
-          # Add GitHub to the list of known hosts
-          ssh-keyscan github.com >> /root/.ssh/known_hosts
-
-          # Start SSH agent and add the private key
-          eval $(ssh-agent -s)
-          ssh-add /root/.ssh/id_rsa
-
-          sudo git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
+          sudo ssh -i /root/.ssh/jump-box-ssh.pem -L 3306:${MYSQL_HOST}:3306 -N -f -l ubuntu -o StrictHostKeyChecking=no ${JUMP_BOX}
 
           sudo mkdir -p /var/www/code/
           sudo chown -R root:root /var/www/code/
 
-          # Clone the private GitHub repository
-          sudo git clone git@github.com:videomagicllc/videomagic-event-server.git /var/www/code/
-
-  EventServerLoadBalancer:
+  DevApiLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: EventServerLoadBalancer
-      Subnets: !Ref PublicSubnetIds
+      Name: DevApiLoadBalancer
+      Subnets: !Ref VMPublicSubnetIds
       SecurityGroups:
-        - !Ref SecurityGroup
+        - !Ref VMSecurityGroup
       Scheme: internet-facing
       Type: application
       Tags:
         - Key: Name
-          Value: EventServerLoadBalancer
+          Value: Dev-ApiLoadBalancer
 
-  EventServerTargetGroup:
+  DevApiTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: EventServerTargetGroup
-      VpcId: !Ref VPCId
+      Name: DevApiTargetGroup
+      VpcId: !Ref VMVPCId
       Port: 80
       Protocol: HTTP
       TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher: 
+        HttpCode: "404,200,301"
       Tags:
         - Key: Name
-          Value: EventServerTargetGroup
+          Value: Dev-ApiTargetGroup
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
 
-  EventServerListener:
+  DevApiListenerHTTP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
         - Type: forward
-          TargetGroupArn: !Ref EventServerTargetGroup
-      LoadBalancerArn: !Ref EventServerLoadBalancer
+          TargetGroupArn: !Ref DevApiTargetGroup
+      LoadBalancerArn: !Ref DevApiLoadBalancer
       Port: 80
       Protocol: HTTP
 
-  EventServerAutoScalingGroup:
+  DevApiListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DevApiTargetGroup
+      LoadBalancerArn: !Ref DevApiLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AcmCertificateArn
+
+  DevApiAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      LaunchConfigurationName: !Ref EventServerLaunchConfiguration
+      LaunchConfigurationName: !Ref DevApiLaunchConfiguration
       MinSize: 1
       MaxSize: 3
-      DesiredCapacity: 2
-      VPCZoneIdentifier: !Ref PublicSubnetIds  # Reference the parameter for subnet IDs
+      DesiredCapacity: 1
+      VPCZoneIdentifier: !Ref VMPublicSubnetIds  
       TargetGroupARNs:
-        - !Ref EventServerTargetGroup 
+        - !Ref DevApiTargetGroup  
+      HealthCheckType: EC2  
+      HealthCheckGracePeriod: 0
       Tags:
         - Key: Name
-          Value: event-server
+          Value: dev-api
           PropagateAtLaunch: true
+
+  

@@ -9,15 +9,14 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Enter the list of public subnet IDs"
 
-  GitSSMParameterName:
-    Type: String
-    Description: "Name of the SSM parameter containing the Git SSH private key"
-    Default: "your parameter name"  
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
 
   SSHTunnelSSMParameterName:
     Type: String
-    Description: "Name of the SSM parameter containing the SSH Tunnel private key"
-    Default: "your parameter name"  # Provide the default value for your SSM parameter
+    Description: "Name of the SSM parameter containing the jump-box private key"
+    Default: "your parameter name"  
 
   MySQLUserSSMParameter:
     Type: String
@@ -44,6 +43,7 @@ Parameters:
     Description: "SSM parameter name for jump box host"
     Default: "your parameter name"
 
+ 
 Resources:
   VMSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -54,20 +54,19 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0  # Allow SSH from anywhere
+          CidrIp: 0.0.0.0/0  
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0  # Allow HTTP from anywhere
+          CidrIp: 0.0.0.0/0  
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: 0.0.0.0/0  # Allow HTTPS from anywhere
+          CidrIp: 0.0.0.0/0  
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           CidrIp: 0.0.0.0/0
-
 
   CFMInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -86,27 +85,29 @@ Resources:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: SSMParameterAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: ssm:GetParameter
-                Resource: 
-                  - !Sub "arn:aws:ssm:*:*:parameter/${GitSSMParameterName}"
-                  - !Sub "arn:aws:ssm:*:*:parameter/${SSHTunnelSSMParameterName}"
-                  - !Sub "arn:aws:ssm:*:*:parameter/${MySQLUserSSMParameter}"
-                  - !Sub "arn:aws:ssm:*:*:parameter/${MySQLPasswordSSMParameter}"
-                  - !Sub "arn:aws:ssm:*:*:parameter/${MySQLDatabaseSSMParameter}"
-                  - !Sub "arn:aws:ssm:*:*:parameter/${MySQLHostSSMParameter}"
-                  - !Sub "arn:aws:ssm:*:*:parameter/${JumpBoxHostSSMParameter}"
-
-  DataProcessorLaunchConfiguration:
+      - PolicyName: DataProcessorCFMRole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - ssm:GetParameter  
+              Resource:
+                - !Sub "arn:aws:ssm:*:*:parameter/${SSHTunnelSSMParameterName}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLUserSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLPasswordSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLDatabaseSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${MySQLHostSSMParameter}"
+                - !Sub "arn:aws:ssm:*:*:parameter/${JumpBoxHostSSMParameter}"
+                - !Sub "arn:aws:s3:::*"
+              
+  ProdDataProcessorLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       ImageId: ami-0c7217cdde317cfec
       InstanceType: t2.medium
-      KeyName: CFM-ASG
+      KeyName: !Ref KeyName
       SecurityGroups:
         - !Ref VMSecurityGroup
       IamInstanceProfile: !Ref CFMInstanceProfile
@@ -119,7 +120,7 @@ Resources:
 
           sudo apt update
           NODE_INSTALL_DIR="/usr/local"
-          NODE_VERSION="v18.12.1"
+          NODE_VERSION="v20.11.1"
           NODE_ARCHIVE="node-${NODE_VERSION}-linux-x64.tar.xz"
           NODE_URL="https://nodejs.org/dist/${NODE_VERSION}/${NODE_ARCHIVE}"
           curl -fsSL "$NODE_URL" -o "/tmp/${NODE_ARCHIVE}"
@@ -140,58 +141,90 @@ Resources:
           sudo apt update
           sudo apt install -y mysql-client
           sudo apt update
-          
+          sudo apt-get update
+          sudo apt-get install -y ruby
+          sudo wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
+          sudo chmod +x ./install
+          sudo ./install auto
           sudo apt install -y awscli 
           aws configure set default.region us-east-1
-          
-          # Set MySQL credentials
+
           export MYSQL_USER=$(aws ssm get-parameter --name mysql-user --query "Parameter.Value" --output text)
           export MYSQL_PASSWORD=$(aws ssm get-parameter --name mysql-password --with-decryption --query "Parameter.Value" --output text)
           export MYSQL_DATABASE=$(aws ssm get-parameter --name mysql-db --query "Parameter.Value" --output text)
           export MYSQL_HOST=$(aws ssm get-parameter --name mysql-host --query "Parameter.Value" --output text)
           export JUMP_BOX=$(aws ssm get-parameter --name jumpbox-host --query "Parameter.Value" --output text)
-         
 
-          # Fetch and write the SSH private key directly to /root/.ssh/id_rsa
-          aws ssm get-parameter --name CFM-ASG --with-decryption --query "Parameter.Value" --output text > /root/.ssh/CFM-ASG.pem
-
-          sudo chmod 600 /root/.ssh/CFM-ASG.pem
-
-          # Start SSH agent and add the private key
+          aws ssm get-parameter --name jump-box-ssh --with-decryption --query "Parameter.Value" --output text > /root/.ssh/jump-box-ssh.pem
+          sudo chmod 600 /root/.ssh/jump-box-ssh.pem
           eval $(ssh-agent -s)
-          ssh-add /root/.ssh/CFM-ASG.pem
-
-          sudo ssh -i /root/.ssh/CFM-ASG.pem -L 3307:${MYSQL_HOST}:3306 -N -f -l ubuntu -o StrictHostKeyChecking=no ${JUMP_BOX}
-          sudo mysql -h 127.0.0.1 -P 3307 -u ${MYSQL_USER} -p"${MYSQL_PASSWORD}" ${MYSQL_DATABASE}
-
-          aws ssm get-parameter --name git--CFM --with-decryption --query "Parameter.Value" --output text > /root/.ssh/id_rsa
-
-          sudo chmod 600 /root/.ssh/id_rsa
-
-          # Add GitHub to the list of known hosts
-          ssh-keyscan github.com >> /root/.ssh/known_hosts
-
-          # Start SSH agent and add the private key
-          eval $(ssh-agent -s)
-          ssh-add /root/.ssh/id_rsa
-
-          sudo git config --global core.sshCommand "ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no"
+          ssh-add /root/.ssh/jump-box-ssh.pem
+          sudo ssh -i /root/.ssh/jump-box-ssh.pem -L 3306:${MYSQL_HOST}:3306 -N -f -l ubuntu -o StrictHostKeyChecking=no ${JUMP_BOX}
 
           sudo mkdir -p /var/www/code/
           sudo chown -R root:root /var/www/code/
 
-          sudo git clone git@github.com:videomagicllc/data-processor.git /var/www/code/
-          
-          
-  DataProcessorAutoScalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
+  ProdDataProcessorLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      LaunchConfigurationName: !Ref DataProcessorLaunchConfiguration
-      MinSize: 1
-      MaxSize: 3
-      DesiredCapacity: 2
-      VPCZoneIdentifier: !Ref VMPublicSubnetIds  # Reference the parameter for subnet IDs
+      Name: ProdDataProcessorLoadBalancer
+      Subnets: !Ref VMPublicSubnetIds
+      SecurityGroups:
+        - !Ref VMSecurityGroup
+      Scheme: internet-facing
+      Type: application
       Tags:
         - Key: Name
-          Value: dev-dataprocessor
+          Value: Prod-DataProcessorLoadBalancer
+
+  ProdDataProcessorTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ProdDataProcessorTargetGroup
+      VpcId: !Ref VMVPCId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 5
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 2
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: Prod-DataProcessorTargetGroup
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
+
+  ProdDataProcessorListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ProdDataProcessorTargetGroup
+      LoadBalancerArn: !Ref ProdDataProcessorLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ProdDataProcessorAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchConfigurationName: !Ref ProdDataProcessorLaunchConfiguration
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 1
+      VPCZoneIdentifier: !Ref VMPublicSubnetIds 
+      TargetGroupARNs:
+        - !Ref ProdDataProcessorTargetGroup 
+      HealthCheckType: EC2  
+      HealthCheckGracePeriod: 0
+      Tags:
+        - Key: Name
+          Value: Prod-dataprocessor
           PropagateAtLaunch: true
+
+
+
